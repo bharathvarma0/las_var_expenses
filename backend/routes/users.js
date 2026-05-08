@@ -1,17 +1,27 @@
 const express = require('express');
-const router = express.Router();
-const db = require('../database');
+const router  = express.Router();
+const { pool } = require('../database');
 
-router.get('/', (req, res) => {
-  const users = db.prepare('SELECT * FROM users').all();
-  res.json(users);
+router.get('/', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM users ORDER BY id');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.patch('/:id', (req, res) => {
-  const { name, avatar_color } = req.body;
-  db.prepare('UPDATE users SET name = ?, avatar_color = ? WHERE id = ?')
-    .run(name, avatar_color, req.params.id);
-  res.json({ success: true });
+router.patch('/:id', async (req, res) => {
+  try {
+    const { name, avatar_color } = req.body;
+    await pool.query(
+      'UPDATE users SET name=$1, avatar_color=$2 WHERE id=$3',
+      [name, avatar_color, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

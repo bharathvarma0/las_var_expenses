@@ -1,95 +1,101 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 
-const db = new Database(path.join(__dirname, 'expense_tracker.db'));
+// DATABASE_URL is automatically set by Vercel's Neon integration.
+// For local dev, create backend/.env with:
+//   DATABASE_URL=postgresql://...your-neon-connection-string...
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+});
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+/**
+ * Run all schema CREATE IF NOT EXISTS statements and seed default data.
+ * Called once when the server starts.
+ */
+async function initDB() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    avatar_color TEXT NOT NULL DEFAULT '#6366f1'
-  );
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id           SERIAL PRIMARY KEY,
+        name         TEXT NOT NULL,
+        avatar_color TEXT NOT NULL DEFAULT '#6366f1'
+      );
 
-  CREATE TABLE IF NOT EXISTS categories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    icon TEXT NOT NULL DEFAULT '💰',
-    color TEXT NOT NULL DEFAULT '#6366f1'
-  );
+      CREATE TABLE IF NOT EXISTS categories (
+        id    SERIAL PRIMARY KEY,
+        name  TEXT NOT NULL,
+        icon  TEXT NOT NULL DEFAULT '',
+        color TEXT NOT NULL DEFAULT '#6366f1'
+      );
 
-  CREATE TABLE IF NOT EXISTS monthly_budgets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    month INTEGER NOT NULL,
-    year INTEGER NOT NULL,
-    total_income REAL NOT NULL DEFAULT 0,
-    opening_leftovers REAL NOT NULL DEFAULT 0,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    UNIQUE(user_id, month, year)
-  );
+      CREATE TABLE IF NOT EXISTS monthly_budgets (
+        id                SERIAL PRIMARY KEY,
+        user_id           INTEGER NOT NULL REFERENCES users(id),
+        month             INTEGER NOT NULL,
+        year              INTEGER NOT NULL,
+        total_income      NUMERIC(12,2) NOT NULL DEFAULT 0,
+        opening_leftovers NUMERIC(12,2) NOT NULL DEFAULT 0,
+        UNIQUE(user_id, month, year)
+      );
 
-  CREATE TABLE IF NOT EXISTS category_budgets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    monthly_budget_id INTEGER NOT NULL,
-    category_id INTEGER NOT NULL,
-    allocated_amount REAL NOT NULL DEFAULT 0,
-    FOREIGN KEY (monthly_budget_id) REFERENCES monthly_budgets(id),
-    FOREIGN KEY (category_id) REFERENCES categories(id),
-    UNIQUE(monthly_budget_id, category_id)
-  );
+      CREATE TABLE IF NOT EXISTS category_budgets (
+        id                SERIAL PRIMARY KEY,
+        monthly_budget_id INTEGER NOT NULL REFERENCES monthly_budgets(id),
+        category_id       INTEGER NOT NULL REFERENCES categories(id),
+        allocated_amount  NUMERIC(12,2) NOT NULL DEFAULT 0,
+        UNIQUE(monthly_budget_id, category_id)
+      );
 
-  CREATE TABLE IF NOT EXISTS expenses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    category_id INTEGER NOT NULL,
-    amount REAL NOT NULL,
-    name TEXT NOT NULL,
-    date TEXT NOT NULL,
-    month INTEGER NOT NULL,
-    year INTEGER NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (category_id) REFERENCES categories(id)
-  );
-`);
+      CREATE TABLE IF NOT EXISTS expenses (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id),
+        category_id INTEGER NOT NULL REFERENCES categories(id),
+        amount      NUMERIC(12,2) NOT NULL,
+        name        TEXT NOT NULL,
+        date        TEXT NOT NULL,
+        month       INTEGER NOT NULL,
+        year        INTEGER NOT NULL
+      );
+    `);
 
-// Seed default users if none exist
-const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
-if (userCount.count === 0) {
-  db.prepare('INSERT INTO users (name, avatar_color) VALUES (?, ?)').run('Lasya', '#6366f1');
-  db.prepare('INSERT INTO users (name, avatar_color) VALUES (?, ?)').run('Bharath', '#ec4899');
-}
+    // Seed default users only if table is empty
+    const { rows: uc } = await client.query('SELECT COUNT(*) AS n FROM users');
+    if (parseInt(uc[0].n) === 0) {
+      await client.query(`
+        INSERT INTO users (name, avatar_color) VALUES
+          ('Lasya',  '#6366f1'),
+          ('Bharath','#ec4899')
+      `);
+    }
 
-// Seed default categories if none exist
-const catCount = db.prepare('SELECT COUNT(*) as count FROM categories').get();
-if (catCount.count === 0) {
-  const cats = [
-    ['Housing', '#3b82f6'],
-    ['Food & Dining', '#f59e0b'],
-    ['Transport', '#10b981'],
-    ['Shopping', '#8b5cf6'],
-    ['Health', '#ef4444'],
-    ['Entertainment', '#f97316'],
-    ['Utilities', '#06b6d4'],
-    ['Savings', '#84cc16'],
-    ['Other', '#6b7280'],
-  ];
-  const insert = db.prepare('INSERT INTO categories (name, icon, color) VALUES (?, ?, ?)');
-  cats.forEach(([name, color]) => insert.run(name, '', color));
-}
+    // Seed default categories only if table is empty
+    const { rows: cc } = await client.query('SELECT COUNT(*) AS n FROM categories');
+    if (parseInt(cc[0].n) === 0) {
+      await client.query(`
+        INSERT INTO categories (name, icon, color) VALUES
+          ('Housing',       '', '#3b82f6'),
+          ('Food & Dining', '', '#f59e0b'),
+          ('Transport',     '', '#10b981'),
+          ('Shopping',      '', '#8b5cf6'),
+          ('Health',        '', '#ef4444'),
+          ('Entertainment', '', '#f97316'),
+          ('Utilities',     '', '#06b6d4'),
+          ('Savings',       '', '#84cc16'),
+          ('Other',         '', '#6b7280')
+      `);
+    }
 
-// Migration: Add opening_leftovers column if it doesn't exist
-try {
-  const tableInfo = db.prepare('PRAGMA table_info(monthly_budgets)').all();
-  const hasLeftovers = tableInfo.some(col => col.name === 'opening_leftovers');
-  if (!hasLeftovers) {
-    db.prepare('ALTER TABLE monthly_budgets ADD COLUMN opening_leftovers REAL NOT NULL DEFAULT 0').run();
-    console.log('✅ Added opening_leftovers column to monthly_budgets table');
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('DB init error:', err);
+    throw err;
+  } finally {
+    client.release();
   }
-} catch (err) {
-  console.error('Migration error:', err.message);
 }
 
-module.exports = db;
+module.exports = { pool, initDB };

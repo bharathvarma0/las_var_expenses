@@ -1,98 +1,114 @@
 const express = require('express');
-const router = express.Router();
-const db = require('../database');
+const router  = express.Router();
+const { pool } = require('../database');
 
-// Helper: dynamically calculate opening_leftovers for a given month
-// (chains back recursively through previous months)
-function calcOpeningLeftovers(userId, year, month) {
+// Helper: dynamically calculate opening_leftovers for a given month (live, not cached)
+async function calcOpeningLeftovers(userId, year, month) {
   let prevMonth = month - 1;
-  let prevYear = year;
+  let prevYear  = year;
   if (prevMonth === 0) { prevMonth = 12; prevYear = year - 1; }
 
-  const prevBudget = db.prepare(
-    'SELECT * FROM monthly_budgets WHERE user_id = ? AND year = ? AND month = ?'
-  ).get(userId, prevYear, prevMonth);
-
+  const { rows } = await pool.query(
+    'SELECT * FROM monthly_budgets WHERE user_id=$1 AND year=$2 AND month=$3',
+    [userId, prevYear, prevMonth]
+  );
+  const prevBudget = rows[0];
   if (!prevBudget) return 0;
 
-  const prevSpent = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) as total
-    FROM expenses
-    WHERE user_id = ? AND year = ? AND month = ?
-  `).get(userId, prevYear, prevMonth);
+  const { rows: spent } = await pool.query(
+    'SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE user_id=$1 AND year=$2 AND month=$3',
+    [userId, prevYear, prevMonth]
+  );
 
-  // Recursively get the opening_leftovers of the previous month
-  const prevOpening = calcOpeningLeftovers(userId, prevYear, prevMonth);
-  return prevOpening + prevBudget.total_income - (prevSpent.total || 0);
+  const prevOpening = await calcOpeningLeftovers(userId, prevYear, prevMonth);
+  return prevOpening + Number(prevBudget.total_income) - Number(spent[0].total);
 }
 
-// Get budget for a user/month/year
-router.get('/:userId/:year/:month', (req, res) => {
-  const { userId, year, month } = req.params;
+// GET /api/budgets/:userId/:year/:month
+router.get('/:userId/:year/:month', async (req, res) => {
+  try {
+    const { userId, year, month } = req.params;
 
-  const budget = db.prepare(
-    'SELECT * FROM monthly_budgets WHERE user_id = ? AND year = ? AND month = ?'
-  ).get(userId, year, month);
+    const { rows } = await pool.query(
+      'SELECT * FROM monthly_budgets WHERE user_id=$1 AND year=$2 AND month=$3',
+      [userId, year, month]
+    );
+    if (!rows[0]) return res.json(null);
+    const budget = rows[0];
 
-  if (!budget) return res.json(null);
+    const { rows: categoryBudgets } = await pool.query(`
+      SELECT cb.*, c.name, c.icon, c.color
+      FROM category_budgets cb
+      JOIN categories c ON cb.category_id = c.id
+      WHERE cb.monthly_budget_id = $1
+    `, [budget.id]);
 
-  const categoryBudgets = db.prepare(`
-    SELECT cb.*, c.name, c.icon, c.color
-    FROM category_budgets cb
-    JOIN categories c ON cb.category_id = c.id
-    WHERE cb.monthly_budget_id = ?
-  `).all(budget.id);
+    // Always compute live — reflects latest expense edits
+    const opening_leftovers = await calcOpeningLeftovers(userId, parseInt(year), parseInt(month));
 
-  // Always compute opening_leftovers live so it reflects the latest expense data
-  const opening_leftovers = calcOpeningLeftovers(userId, parseInt(year), parseInt(month));
-
-  res.json({ ...budget, opening_leftovers, category_budgets: categoryBudgets });
+    res.json({ ...budget, opening_leftovers, category_budgets: categoryBudgets });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
+// POST /api/budgets/:userId/:year/:month
+router.post('/:userId/:year/:month', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { userId, year, month } = req.params;
+    const { total_income, category_budgets } = req.body;
 
-// Create or update budget
-router.post('/:userId/:year/:month', (req, res) => {
-  const { userId, year, month } = req.params;
-  const { total_income, category_budgets } = req.body;
+    const safeIncome = Math.round(parseFloat(total_income) * 100) / 100;
 
-  const existing = db.prepare(
-    'SELECT id, opening_leftovers FROM monthly_budgets WHERE user_id = ? AND year = ? AND month = ?'
-  ).get(userId, year, month);
+    await client.query('BEGIN');
 
-  let budgetId;
-  let openingLeftovers;
+    const { rows: existing } = await client.query(
+      'SELECT id, opening_leftovers FROM monthly_budgets WHERE user_id=$1 AND year=$2 AND month=$3',
+      [userId, year, month]
+    );
 
-  if (existing) {
-    // Update existing - keep the same opening_leftovers
-    openingLeftovers = existing.opening_leftovers;
-    db.prepare('UPDATE monthly_budgets SET total_income = ? WHERE id = ?')
-      .run(Math.round(total_income * 100) / 100, existing.id);
-    budgetId = existing.id;
-  } else {
-    // New budget - calculate opening_leftovers from previous month
-    openingLeftovers = calcOpeningLeftovers(userId, parseInt(year), parseInt(month));
-    const result = db.prepare(
-      'INSERT INTO monthly_budgets (user_id, month, year, total_income, opening_leftovers) VALUES (?, ?, ?, ?, ?)'
-    ).run(userId, month, year, Math.round(total_income * 100) / 100, openingLeftovers);
-    budgetId = result.lastInsertRowid;
+    let budgetId;
+    let openingLeftovers;
+
+    if (existing[0]) {
+      openingLeftovers = Number(existing[0].opening_leftovers);
+      await client.query(
+        'UPDATE monthly_budgets SET total_income=$1 WHERE id=$2',
+        [safeIncome, existing[0].id]
+      );
+      budgetId = existing[0].id;
+    } else {
+      openingLeftovers = await calcOpeningLeftovers(userId, parseInt(year), parseInt(month));
+      const { rows: ins } = await client.query(
+        'INSERT INTO monthly_budgets (user_id, month, year, total_income, opening_leftovers) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+        [userId, month, year, safeIncome, openingLeftovers]
+      );
+      budgetId = ins[0].id;
+    }
+
+    if (category_budgets && category_budgets.length > 0) {
+      for (const { category_id, allocated_amount } of category_budgets) {
+        const safeAmt = Math.round(parseFloat(allocated_amount) * 100) / 100;
+        await client.query(`
+          INSERT INTO category_budgets (monthly_budget_id, category_id, allocated_amount)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (monthly_budget_id, category_id)
+          DO UPDATE SET allocated_amount = EXCLUDED.allocated_amount
+        `, [budgetId, category_id, safeAmt]);
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ success: true, budgetId, opening_leftovers: openingLeftovers });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
-
-  // Upsert category budgets
-  if (category_budgets && category_budgets.length > 0) {
-    const upsert = db.prepare(`
-      INSERT INTO category_budgets (monthly_budget_id, category_id, allocated_amount)
-      VALUES (?, ?, ?)
-      ON CONFLICT(monthly_budget_id, category_id) DO UPDATE SET allocated_amount = excluded.allocated_amount
-    `);
-    const tx = db.transaction(() => {
-      category_budgets.forEach(({ category_id, allocated_amount }) => {
-        upsert.run(budgetId, category_id, Math.round(allocated_amount * 100) / 100);
-      });
-    });
-    tx();
-  }
-
-  res.json({ success: true, budgetId, opening_leftovers: openingLeftovers });
 });
 
 module.exports = router;
