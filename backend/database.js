@@ -1,11 +1,13 @@
 const { Pool } = require('pg');
 
-// DATABASE_URL is automatically set by Vercel's Neon integration.
-// For local dev, create backend/.env with:
-//   DATABASE_URL=postgresql://...your-neon-connection-string...
+// DATABASE_URL → Supabase Transaction Pooler URL (port 6543)
+// For local dev add to backend/.env:
+//   DATABASE_URL=postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false }, // always required on Supabase
+  max: 1,                             // keep connections minimal for serverless
+  idleTimeoutMillis: 10_000,
 });
 
 /**
