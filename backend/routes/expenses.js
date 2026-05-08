@@ -2,6 +2,14 @@ const express = require('express');
 const router  = express.Router();
 const { pool } = require('../database');
 
+// Helper — PostgreSQL returns NUMERIC as strings; convert to JS numbers
+const parseRow = (r) => ({
+  ...r,
+  amount:           r.amount           != null ? parseFloat(r.amount)           : r.amount,
+  spent:            r.spent            != null ? parseFloat(r.spent)            : r.spent,
+  allocated_amount: r.allocated_amount != null ? parseFloat(r.allocated_amount) : r.allocated_amount,
+});
+
 // GET /api/expenses/:userId/:year/:month
 router.get('/:userId/:year/:month', async (req, res) => {
   try {
@@ -13,7 +21,7 @@ router.get('/:userId/:year/:month', async (req, res) => {
       WHERE e.user_id=$1 AND e.year=$2 AND e.month=$3
       ORDER BY e.date DESC, e.id DESC
     `, [userId, year, month]);
-    res.json(rows);
+    res.json(rows.map(parseRow));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -33,7 +41,7 @@ router.get('/all/:year/:month', async (req, res) => {
       WHERE e.year=$1 AND e.month=$2
       ORDER BY e.date DESC, e.id DESC
     `, [year, month]);
-    res.json(rows);
+    res.json(rows.map(parseRow));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -75,7 +83,7 @@ router.get('/summary/:userId/:year/:month', async (req, res) => {
         AND e.user_id=$1 AND e.year=$2 AND e.month=$3
       GROUP BY c.id, c.name, c.icon, c.color
     `, [userId, year, month]);
-    res.json(rows);
+    res.json(rows.map(parseRow));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

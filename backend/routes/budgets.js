@@ -43,10 +43,17 @@ router.get('/:userId/:year/:month', async (req, res) => {
       WHERE cb.monthly_budget_id = $1
     `, [budget.id]);
 
-    // Always compute live — reflects latest expense edits
     const opening_leftovers = await calcOpeningLeftovers(userId, parseInt(year), parseInt(month));
 
-    res.json({ ...budget, opening_leftovers, category_budgets: categoryBudgets });
+    res.json({
+      ...budget,
+      total_income:      parseFloat(budget.total_income),
+      opening_leftovers: parseFloat(opening_leftovers),
+      category_budgets:  categoryBudgets.map(cb => ({
+        ...cb,
+        allocated_amount: parseFloat(cb.allocated_amount),
+      })),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

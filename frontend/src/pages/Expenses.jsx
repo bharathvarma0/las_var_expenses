@@ -115,46 +115,27 @@ export default function Expenses({ users, activeUser, month, year }) {
         </div>
       </div>
 
-      {/* ── Calendar ── */}
-      <div className="card mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-            Filter by day
+      {/* ── Minimal Date Filter ── */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3 px-1">
+          <p className="text-xs font-medium text-gray-400">
+            {selectedDay ? format(new Date(year, month - 1, selectedDay), 'EEEE, MMMM d') : 'All transactions this month'}
           </p>
           {selectedDay && (
             <button
               onClick={() => setSelectedDay(null)}
-              className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+              className="text-[11px] font-semibold text-gray-400 hover:text-white transition-colors bg-gray-800 px-3 py-1.5 rounded-full uppercase tracking-wider"
             >
-              Show all
+              Clear filter
             </button>
           )}
         </div>
 
-        {/* Day-of-week labels */}
-        <div className="grid grid-cols-7 mb-1">
-          {DAY_LABELS.map(d => (
-            <div key={d} className="text-center text-[10px] font-semibold text-gray-600 py-1">
-              {d}
-            </div>
-          ))}
-        </div>
-
-        {/* Day cells */}
-        <div className="grid grid-cols-7 gap-0.5">
-          {/* Empty cells before first day */}
-          {Array.from({ length: firstDayOfWeek }).map((_, i) => (
-            <div key={`empty-${i}`} />
-          ))}
-
+        <div className="flex gap-2 overflow-x-auto pb-2 pt-1 px-1 -mx-1 snap-x scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => {
             const dateStr    = toDateStr(year, month, d);
             const hasExpense = daysWithExpense.has(dateStr);
             const isSelected = selectedDay === d;
-            const isToday    =
-              new Date().getDate()     === d &&
-              new Date().getMonth() + 1 === month &&
-              new Date().getFullYear()  === year;
 
             return (
               <button
@@ -162,20 +143,24 @@ export default function Expenses({ users, activeUser, month, year }) {
                 onClick={() => handleDayClick(d)}
                 disabled={!hasExpense}
                 className={`
-                  relative flex flex-col items-center justify-center rounded-xl
-                  aspect-square text-xs font-semibold transition-all
+                  flex-shrink-0 snap-start flex flex-col items-center justify-center
+                  w-14 h-16 rounded-2xl transition-all duration-200 border
                   ${isSelected
-                    ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30'
+                    ? 'bg-white text-black border-white shadow-sm scale-105'
                     : hasExpense
-                      ? 'bg-gray-800 text-white hover:bg-gray-700 cursor-pointer'
-                      : 'text-gray-700 cursor-default'}
-                  ${isToday && !isSelected ? 'ring-1 ring-indigo-500/60' : ''}
+                      ? 'bg-[#1a1d24] text-gray-200 border-gray-800 hover:border-gray-600 cursor-pointer'
+                      : 'bg-transparent text-gray-700 border-transparent cursor-default opacity-50'
+                  }
                 `}
               >
-                {d}
-                {/* Dot indicator for days with expenses */}
+                <span className={`text-[10px] font-medium mb-0.5 ${isSelected ? 'text-gray-500' : 'text-gray-500'}`}>
+                  {format(new Date(year, month - 1, d), 'EEE')}
+                </span>
+                <span className="text-lg font-semibold">
+                  {d}
+                </span>
                 {hasExpense && !isSelected && (
-                  <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-indigo-400" />
+                  <span className="w-1 h-1 rounded-full bg-indigo-400 mt-1" />
                 )}
               </button>
             );
