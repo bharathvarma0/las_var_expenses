@@ -1,7 +1,53 @@
 -- =============================================
--- Neon migration export from expense_tracker.db
--- Paste this into the Neon SQL editor
+-- Supabase migration: schema + data import
+-- Paste this entire file into the Supabase SQL Editor and Run
 -- =============================================
+
+-- ── SCHEMA ────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS users (
+  id           SERIAL PRIMARY KEY,
+  name         TEXT NOT NULL,
+  avatar_color TEXT NOT NULL DEFAULT '#6366f1'
+);
+
+CREATE TABLE IF NOT EXISTS categories (
+  id    SERIAL PRIMARY KEY,
+  name  TEXT NOT NULL,
+  icon  TEXT NOT NULL DEFAULT '',
+  color TEXT NOT NULL DEFAULT '#6366f1'
+);
+
+CREATE TABLE IF NOT EXISTS monthly_budgets (
+  id                SERIAL PRIMARY KEY,
+  user_id           INTEGER NOT NULL REFERENCES users(id),
+  month             INTEGER NOT NULL,
+  year              INTEGER NOT NULL,
+  total_income      NUMERIC(12,2) NOT NULL DEFAULT 0,
+  opening_leftovers NUMERIC(12,2) NOT NULL DEFAULT 0,
+  UNIQUE(user_id, month, year)
+);
+
+CREATE TABLE IF NOT EXISTS category_budgets (
+  id                SERIAL PRIMARY KEY,
+  monthly_budget_id INTEGER NOT NULL REFERENCES monthly_budgets(id),
+  category_id       INTEGER NOT NULL REFERENCES categories(id),
+  allocated_amount  NUMERIC(12,2) NOT NULL DEFAULT 0,
+  UNIQUE(monthly_budget_id, category_id)
+);
+
+CREATE TABLE IF NOT EXISTS expenses (
+  id          SERIAL PRIMARY KEY,
+  user_id     INTEGER NOT NULL REFERENCES users(id),
+  category_id INTEGER NOT NULL REFERENCES categories(id),
+  amount      NUMERIC(12,2) NOT NULL,
+  name        TEXT NOT NULL,
+  date        TEXT NOT NULL,
+  month       INTEGER NOT NULL,
+  year        INTEGER NOT NULL
+);
+
+-- ── DATA ──────────────────────────────────────────────
 
 -- USERS
 INSERT INTO users (id, name, avatar_color) VALUES (1, 'Lasya', '#6366f1') ON CONFLICT (id) DO NOTHING;
