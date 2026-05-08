@@ -1,0 +1,5 @@
+node_modules/
+backend/expense_tracker.db
+backend/expense_tracker.db-shm
+backend/expense_tracker.db-wal
+frontend/dist/
