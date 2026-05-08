@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 
+const fmt = (n) => (Math.round(Number(n) * 100) / 100).toLocaleString();
+
 export default function AddExpense({ activeUser, month, year, onDone }) {
   const [categories, setCategories] = useState([]);
   const [categoryId, setCategoryId] = useState('');
@@ -85,7 +87,7 @@ export default function AddExpense({ activeUser, month, year, onDone }) {
             <div className="flex justify-between text-sm mb-2">
               <span className="text-gray-400">{selectedCat.name} budget</span>
               <span className={`whitespace-nowrap ${catRemaining < 0 ? 'text-red-400 font-semibold' : 'text-green-400 font-semibold'}`}>
-                {catRemaining < 0 ? `₹${Math.abs(catRemaining).toLocaleString()} over` : `₹${catRemaining.toLocaleString()} left`}
+                {catRemaining < 0 ? `₹${fmt(Math.abs(catRemaining))} over` : `₹${fmt(catRemaining)} left`}
               </span>
             </div>
             <div className="h-2 bg-gray-800 rounded-full">
@@ -98,8 +100,8 @@ export default function AddExpense({ activeUser, month, year, onDone }) {
               />
             </div>
             <div className="flex justify-between text-xs text-gray-500 mt-1">
-              <span>Spent ₹{catSpent.toLocaleString()}</span>
-              <span>Budget ₹{catAlloc.toLocaleString()}</span>
+              <span>Spent ₹{fmt(catSpent)}</span>
+              <span>Budget ₹{fmt(catAlloc)}</span>
             </div>
           </div>
         )}

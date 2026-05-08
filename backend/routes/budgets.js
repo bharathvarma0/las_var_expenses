@@ -2,6 +2,30 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 
+// Helper: dynamically calculate opening_leftovers for a given month
+// (chains back recursively through previous months)
+function calcOpeningLeftovers(userId, year, month) {
+  let prevMonth = month - 1;
+  let prevYear = year;
+  if (prevMonth === 0) { prevMonth = 12; prevYear = year - 1; }
+
+  const prevBudget = db.prepare(
+    'SELECT * FROM monthly_budgets WHERE user_id = ? AND year = ? AND month = ?'
+  ).get(userId, prevYear, prevMonth);
+
+  if (!prevBudget) return 0;
+
+  const prevSpent = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total
+    FROM expenses
+    WHERE user_id = ? AND year = ? AND month = ?
+  `).get(userId, prevYear, prevMonth);
+
+  // Recursively get the opening_leftovers of the previous month
+  const prevOpening = calcOpeningLeftovers(userId, prevYear, prevMonth);
+  return prevOpening + prevBudget.total_income - (prevSpent.total || 0);
+}
+
 // Get budget for a user/month/year
 router.get('/:userId/:year/:month', (req, res) => {
   const { userId, year, month } = req.params;
@@ -19,8 +43,12 @@ router.get('/:userId/:year/:month', (req, res) => {
     WHERE cb.monthly_budget_id = ?
   `).all(budget.id);
 
-  res.json({ ...budget, category_budgets: categoryBudgets });
+  // Always compute opening_leftovers live so it reflects the latest expense data
+  const opening_leftovers = calcOpeningLeftovers(userId, parseInt(year), parseInt(month));
+
+  res.json({ ...budget, opening_leftovers, category_budgets: categoryBudgets });
 });
+
 
 // Create or update budget
 router.post('/:userId/:year/:month', (req, res) => {
@@ -28,18 +56,24 @@ router.post('/:userId/:year/:month', (req, res) => {
   const { total_income, category_budgets } = req.body;
 
   const existing = db.prepare(
-    'SELECT id FROM monthly_budgets WHERE user_id = ? AND year = ? AND month = ?'
+    'SELECT id, opening_leftovers FROM monthly_budgets WHERE user_id = ? AND year = ? AND month = ?'
   ).get(userId, year, month);
 
   let budgetId;
+  let openingLeftovers;
+
   if (existing) {
+    // Update existing - keep the same opening_leftovers
+    openingLeftovers = existing.opening_leftovers;
     db.prepare('UPDATE monthly_budgets SET total_income = ? WHERE id = ?')
-      .run(total_income, existing.id);
+      .run(Math.round(total_income * 100) / 100, existing.id);
     budgetId = existing.id;
   } else {
+    // New budget - calculate opening_leftovers from previous month
+    openingLeftovers = calcOpeningLeftovers(userId, parseInt(year), parseInt(month));
     const result = db.prepare(
-      'INSERT INTO monthly_budgets (user_id, month, year, total_income) VALUES (?, ?, ?, ?)'
-    ).run(userId, month, year, total_income);
+      'INSERT INTO monthly_budgets (user_id, month, year, total_income, opening_leftovers) VALUES (?, ?, ?, ?, ?)'
+    ).run(userId, month, year, Math.round(total_income * 100) / 100, openingLeftovers);
     budgetId = result.lastInsertRowid;
   }
 
@@ -52,13 +86,13 @@ router.post('/:userId/:year/:month', (req, res) => {
     `);
     const tx = db.transaction(() => {
       category_budgets.forEach(({ category_id, allocated_amount }) => {
-        upsert.run(budgetId, category_id, allocated_amount);
+        upsert.run(budgetId, category_id, Math.round(allocated_amount * 100) / 100);
       });
     });
     tx();
   }
 
-  res.json({ success: true, budgetId });
+  res.json({ success: true, budgetId, opening_leftovers: openingLeftovers });
 });
 
 module.exports = router;

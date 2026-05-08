@@ -40,16 +40,12 @@ router.post('/', (req, res) => {
   const result = db.prepare(`
     INSERT INTO expenses (user_id, category_id, amount, name, date, month, year)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(user_id, category_id, amount, name, date, month, year);
+  `).run(user_id, category_id, Math.round(parseFloat(amount) * 100) / 100, name, date, month, year);
 
   res.json({ success: true, id: result.lastInsertRowid });
 });
 
-// Delete expense
-router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
-});
+
 
 // Category summary for a user/month/year
 router.get('/summary/:userId/:year/:month', (req, res) => {

@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Legend } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Legend, Label } from 'recharts';
 import { format } from 'date-fns';
 
-function StatCard({ label, value, sub, accent }) {
+// Round to 2dp then format — prevents floating-point dust like 999.9999998
+const fmt = (n) => (Math.round(Number(n) * 100) / 100).toLocaleString();
+
+function StatCard({ label, value, sub, accent, prefix = '₹', suffix = '' }) {
   return (
     <div className="card py-4 px-4 min-w-0">
       <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
       <p className={`text-base sm:text-xl font-bold mt-1 whitespace-nowrap overflow-visible ${accent || 'text-white'}`}>
-        ₹{Number(value).toLocaleString()}
+        {prefix}{fmt(value)}{suffix}
       </p>
       {sub && <p className="text-[10px] sm:text-xs text-gray-500 mt-1">{sub}</p>}
     </div>
@@ -25,20 +28,20 @@ function CategoryBar({ cat, allocated, spent }) {
         <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
         <span className="text-sm font-medium text-gray-200 flex-1 min-w-0 truncate">{cat.name}</span>
         <div className="flex items-center gap-1.5 flex-shrink-0 whitespace-nowrap">
-          <span className="text-sm font-semibold text-white">₹{spent.toLocaleString()}</span>
+          <span className="text-sm font-semibold text-white">₹{fmt(spent)}</span>
           {allocated > 0 && (
-            <span className="text-xs text-gray-500 hidden sm:inline">/ ₹{allocated.toLocaleString()}</span>
+            <span className="text-xs text-gray-500 hidden sm:inline">/ ₹{fmt(allocated)}</span>
           )}
           {over && (
             <span className="text-[10px] sm:text-xs bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap">
-              +₹{overAmount.toLocaleString()}
+              +₹{fmt(overAmount)}
             </span>
           )}
         </div>
       </div>
       {allocated > 0 && (
         <p className="text-[10px] text-gray-600 mb-1 sm:hidden ml-4">
-          of ₹{allocated.toLocaleString()} budget
+          of ₹{fmt(allocated)} budget
         </p>
       )}
       <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
@@ -90,8 +93,15 @@ export default function Dashboard({ users, activeUser, month, year, onNavigate }
   const { budget, summary } = data;
   const totalIncome = budget?.total_income || 0;
   const totalSpent = (summary || []).reduce((s, c) => s + c.spent, 0);
-  const remaining = totalIncome - totalSpent;
-  const savingsRate = totalIncome > 0 ? Math.max(0, ((totalIncome - totalSpent) / totalIncome * 100)).toFixed(1) : 0;
+  const openingLeftovers = budget?.opening_leftovers || 0;
+
+  // Budget Diff = Income - Spent this month (positive = under, negative = over)
+  const budgetDiff = totalIncome - totalSpent;
+
+  // Current Leftovers = what was saved before + this month's diff
+  const currentLeftovers = openingLeftovers + budgetDiff;
+
+  const savingsRate = totalIncome > 0 ? ((budgetDiff / totalIncome) * 100).toFixed(1) : '0.0';
   const otherTotalSpent = (otherData?.summary || []).reduce((s, c) => s + c.spent, 0);
 
   const pieData = (summary || [])
@@ -145,7 +155,7 @@ export default function Dashboard({ users, activeUser, month, year, onNavigate }
               const b = (budget?.category_budgets || []).find(x => x.category_id === cat.id);
               return (
                 <span key={cat.id} className="bg-red-500/20 text-red-300 text-xs px-2 py-1 rounded-full">
-                  {cat.name}: +₹{(s.spent - b.allocated_amount).toLocaleString()}
+                  {cat.name}: +₹{fmt(s.spent - b.allocated_amount)}
                 </span>
               );
             })}
@@ -153,22 +163,57 @@ export default function Dashboard({ users, activeUser, month, year, onNavigate }
         </div>
       )}
 
-      {/* Stats – 2×2 on mobile, 4×1 on desktop */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-        <StatCard label="Income" value={totalIncome} sub="This month" />
+      {/* Leftovers banner — shown when there's carry-forward from last month */}
+      {openingLeftovers !== 0 && (
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border text-sm ${
+          openingLeftovers > 0
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+            : 'bg-red-500/10 border-red-500/30 text-red-300'
+        }`}>
+          <span className="text-lg">{openingLeftovers > 0 ? '🏦' : '⚠️'}</span>
+          <span>
+            <span className="font-semibold">Leftovers from last month: </span>
+            <span className="font-bold">₹{fmt(Math.abs(openingLeftovers))}</span>
+            {openingLeftovers > 0
+              ? ' carried forward as your safety buffer'
+              : ' deficit carried from last month'}
+          </span>
+        </div>
+      )}
+
+      {/* Stats — top row: Income + Spent */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+        <StatCard label="Income" value={totalIncome} sub="This month's budget" />
         <StatCard
           label="Spent"
           value={totalSpent}
           accent="text-orange-400"
-          sub={`${totalSpent > 0 && totalIncome > 0 ? ((totalSpent / totalIncome) * 100).toFixed(1) : 0}% of income`}
+          sub={`${totalIncome > 0 ? ((totalSpent / totalIncome) * 100).toFixed(1) : 0}% of income`}
+        />
+      </div>
+
+      {/* Stats — bottom row: Budget Diff, Leftovers, Savings % */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <StatCard
+          label="Budget Diff"
+          value={Math.abs(budgetDiff)}
+          accent={budgetDiff < 0 ? 'text-red-400' : 'text-green-400'}
+          sub={budgetDiff < 0 ? '▼ Over budget' : '▲ Under budget'}
         />
         <StatCard
-          label="Remaining"
-          value={Math.abs(remaining)}
-          accent={remaining < 0 ? 'text-red-400' : 'text-green-400'}
-          sub={remaining < 0 ? 'Over income' : 'Available'}
+          label="Leftovers"
+          value={Math.abs(currentLeftovers)}
+          accent={currentLeftovers < 0 ? 'text-red-400' : 'text-emerald-400'}
+          sub={currentLeftovers < 0 ? '⚠ In deficit' : '✓ Total saved'}
         />
-        <StatCard label="Savings %" value={savingsRate} sub="% saved" accent="text-indigo-400" />
+        <StatCard
+          label="Savings %"
+          value={Math.abs(savingsRate)}
+          prefix=""
+          suffix="%"
+          accent={parseFloat(savingsRate) < 0 ? 'text-red-400' : 'text-indigo-400'}
+          sub={parseFloat(savingsRate) < 0 ? 'Overspent' : 'Of income saved'}
+        />
       </div>
 
       {/* Category breakdown + Pie */}
@@ -207,11 +252,21 @@ export default function Dashboard({ users, activeUser, month, year, onNavigate }
             <>
               <ResponsiveContainer width="100%" height={180}>
                 <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={50} outerRadius={78} paddingAngle={2} dataKey="value">
-                    {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={78}
+                    paddingAngle={2}
+                    dataKey="value"
+                    label={({ value }) => `₹${fmt(value)}`}
+                    labelLine={{ stroke: '#9ca3af', strokeWidth: 1 }}
+                  >
+                    {pieData.map((entry, i) => <Cell key={i} fill={entry.color} stroke="none" />)}
                   </Pie>
                   <Tooltip
-                    formatter={(v) => [`₹${v.toLocaleString()}`, '']}
+                    formatter={(v) => [`₹${fmt(v)}`, '']}    // pie tooltip
                     contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px' }}
                   />
                 </PieChart>
@@ -220,8 +275,8 @@ export default function Dashboard({ users, activeUser, month, year, onNavigate }
                 {pieData.map((item, i) => (
                   <div key={i} className="flex items-center gap-1.5 min-w-0">
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
-                    <span className="text-xs text-gray-400 truncate">{item.name}</span>
-                    <span className="text-xs text-gray-300 ml-auto font-medium flex-shrink-0">₹{item.value.toLocaleString()}</span>
+                    <span className="text-xs text-gray-300 truncate">{item.name}</span>
+                    <span className="text-xs text-white ml-auto font-semibold flex-shrink-0">₹{fmt(item.value)}</span>
                   </div>
                 ))}
               </div>
@@ -252,13 +307,13 @@ export default function Dashboard({ users, activeUser, month, year, onNavigate }
                     </div>
                     <span className="font-semibold text-white text-sm truncate">{user.name}</span>
                   </div>
-                  <p className="text-base sm:text-xl font-bold text-white">₹{spent.toLocaleString()}</p>
-                  <p className="text-[10px] sm:text-xs text-gray-500 mb-2">of ₹{inc.toLocaleString()}</p>
+                  <p className="text-base sm:text-xl font-bold text-white">₹{fmt(spent)}</p>
+                  <p className="text-[10px] sm:text-xs text-gray-500 mb-2">of ₹{fmt(inc)}</p>
                   <div className="h-2 bg-gray-700 rounded-full">
                     <div className="h-2 rounded-full transition-all"
                       style={{ width: `${pct}%`, backgroundColor: over ? '#ef4444' : user.avatar_color }} />
                   </div>
-                  {over && <p className="text-xs text-red-400 mt-1">+₹{(spent - inc).toLocaleString()} over</p>}
+                  {over && <p className="text-xs text-red-400 mt-1">+₹{fmt(spent - inc)} over</p>}
                 </div>
               );
             })}
@@ -274,7 +329,7 @@ export default function Dashboard({ users, activeUser, month, year, onNavigate }
                     <YAxis tick={{ fontSize: 9, fill: '#6b7280' }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v}`} width={50} />
                   )}
                   <Tooltip
-                    formatter={(v) => [`₹${v.toLocaleString()}`, '']}
+                    formatter={(v) => [`₹${fmt(v)}`, '']}    // bar tooltip
                     contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '12px', fontSize: '12px' }}
                   />
                   <Legend wrapperStyle={{ fontSize: '11px' }} />

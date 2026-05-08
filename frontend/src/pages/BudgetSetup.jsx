@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 
+const fmt = (n) => (Math.round(Number(n) * 100) / 100).toLocaleString();
+
 export default function BudgetSetup({ activeUser, month, year, onDone }) {
   const [categories, setCategories] = useState([]);
   const [income, setIncome] = useState('');
   const [allocations, setAllocations] = useState({});
+  const [openingLeftovers, setOpeningLeftovers] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -16,6 +19,7 @@ export default function BudgetSetup({ activeUser, month, year, onDone }) {
       setCategories(cats);
       if (budget) {
         setIncome(budget.total_income.toString());
+        setOpeningLeftovers(budget.opening_leftovers || 0);
         const alloc = {};
         budget.category_budgets.forEach(cb => {
           alloc[cb.category_id] = cb.allocated_amount.toString();
@@ -84,6 +88,26 @@ export default function BudgetSetup({ activeUser, month, year, onDone }) {
         <p className="text-gray-400 mt-1">{monthName} · {activeUser.name}</p>
       </div>
 
+      {openingLeftovers !== 0 && (
+        <div className={`mb-4 flex items-center gap-3 px-4 py-3 rounded-2xl border text-sm ${
+          openingLeftovers > 0
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+            : 'bg-red-500/10 border-red-500/30 text-red-300'
+        }`}>
+          <span className="text-lg">{openingLeftovers > 0 ? '🏦' : '⚠️'}</span>
+          <div>
+            <p className="font-semibold">
+              Leftovers from last month: ₹{fmt(Math.abs(openingLeftovers))}
+            </p>
+            <p className="text-xs opacity-75 mt-0.5">
+              {openingLeftovers > 0
+                ? 'Plan your income below — leftovers act as a separate safety buffer'
+                : 'You have a deficit from last month — it will reduce from your current leftovers'}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="card mb-4">
         <label className="label">Monthly Income</label>
         <div className="flex flex-col sm:flex-row gap-2">
@@ -107,16 +131,16 @@ export default function BudgetSetup({ activeUser, month, year, onDone }) {
       <div className={`card mb-4 grid grid-cols-3 gap-2 ${remaining < 0 ? 'border-red-500/50' : 'border-green-500/30'}`}>
         <div className="min-w-0">
           <p className="text-xs text-gray-400 mb-0.5">Allocated</p>
-          <p className="text-sm sm:text-base font-bold text-white">₹{totalAllocated.toLocaleString()}</p>
+          <p className="text-sm sm:text-base font-bold text-white">₹{fmt(totalAllocated)}</p>
         </div>
         <div className="min-w-0 text-center">
           <p className="text-xs text-gray-400 mb-0.5">Income</p>
-          <p className="text-sm sm:text-base font-bold text-white">₹{(parseFloat(income) || 0).toLocaleString()}</p>
+          <p className="text-sm sm:text-base font-bold text-white">₹{fmt(parseFloat(income) || 0)}</p>
         </div>
         <div className="min-w-0 text-right">
           <p className="text-xs text-gray-400 mb-0.5">Remaining</p>
           <p className={`text-sm sm:text-base font-bold ${remaining < 0 ? 'text-red-400' : 'text-green-400'}`}>
-            ₹{remaining.toLocaleString()}
+            ₹{fmt(remaining)}
           </p>
         </div>
       </div>

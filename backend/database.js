@@ -26,6 +26,7 @@ db.exec(`
     month INTEGER NOT NULL,
     year INTEGER NOT NULL,
     total_income REAL NOT NULL DEFAULT 0,
+    opening_leftovers REAL NOT NULL DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(id),
     UNIQUE(user_id, month, year)
   );
@@ -77,6 +78,18 @@ if (catCount.count === 0) {
   ];
   const insert = db.prepare('INSERT INTO categories (name, icon, color) VALUES (?, ?, ?)');
   cats.forEach(([name, color]) => insert.run(name, '', color));
+}
+
+// Migration: Add opening_leftovers column if it doesn't exist
+try {
+  const tableInfo = db.prepare('PRAGMA table_info(monthly_budgets)').all();
+  const hasLeftovers = tableInfo.some(col => col.name === 'opening_leftovers');
+  if (!hasLeftovers) {
+    db.prepare('ALTER TABLE monthly_budgets ADD COLUMN opening_leftovers REAL NOT NULL DEFAULT 0').run();
+    console.log('✅ Added opening_leftovers column to monthly_budgets table');
+  }
+} catch (err) {
+  console.error('Migration error:', err.message);
 }
 
 module.exports = db;
