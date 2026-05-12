@@ -1,4 +1,8 @@
-require('dotenv').config();
+// Load .env only in local development (not in Netlify Functions)
+if (process.env.NODE_ENV !== 'production' && require.main === module) {
+  require('dotenv').config();
+}
+
 const express   = require('express');
 const cors      = require('cors');
 
