@@ -107,6 +107,23 @@ async function initDB() {
       `);
     }
 
+    // Initialize PINs if access_groups table is empty
+    const { rows: ag } = await client.query('SELECT COUNT(*) AS n FROM access_groups');
+    if (parseInt(ag[0].n) === 0) {
+      const bcrypt = require('bcrypt');
+
+      // Hash the PINs
+      const hash1 = await bcrypt.hash('0525', 10); // Lasya & Bharath
+      const hash2 = await bcrypt.hash('9455', 10); // Bhagavan
+
+      await client.query(`
+        INSERT INTO access_groups (pin_hash, user_ids, name)
+        VALUES ($1, $2, $3), ($4, $5, $6)
+      `, [hash1, [1, 2], 'Lasya & Bharath', hash2, [3], 'Bhagavan']);
+
+      console.log('✓ PINs initialized: 0525 (Lasya & Bharath), 9455 (Bhagavan)');
+    }
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
