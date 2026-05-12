@@ -13,23 +13,62 @@ export default function App() {
   const [page, setPage] = useState('login');
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
+  const [isVerifying, setIsVerifying] = useState(true);
 
+  // Verify existing token on mount
   useEffect(() => {
-    fetch('/api/users')
+    const token = localStorage.getItem('authToken');
+
+    if (!token) {
+      setIsVerifying(false);
+      return;
+    }
+
+    // Verify the token with the backend
+    fetch('/api/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    })
       .then(r => r.json())
       .then(data => {
-        setUsers(data);
-        const saved = localStorage.getItem('activeUserId');
-        if (saved) {
-          const u = data.find(x => x.id === parseInt(saved));
-          if (u) { setActiveUser(u); setPage('dashboard'); }
+        if (data.valid) {
+          setUsers(data.users);
+          // Set first user as active, or restore from localStorage
+          const savedUserId = localStorage.getItem('activeUserId');
+          const user = savedUserId
+            ? data.users.find(u => u.id === parseInt(savedUserId))
+            : data.users[0];
+
+          if (user) {
+            setActiveUser(user);
+            setPage('dashboard');
+          }
+        } else {
+          // Token invalid, clear it
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('activeUserId');
         }
+      })
+      .catch(err => {
+        console.error('Token verification failed:', err);
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('activeUserId');
+      })
+      .finally(() => {
+        setIsVerifying(false);
       });
   }, []);
 
-  const handleLogin = (user) => {
-    setActiveUser(user);
-    localStorage.setItem('activeUserId', user.id);
+  const handleLogin = (token, users, groupName) => {
+    // Store token and users
+    localStorage.setItem('authToken', token);
+    setUsers(users);
+
+    // Set first user as active
+    const firstUser = users[0];
+    setActiveUser(firstUser);
+    localStorage.setItem('activeUserId', firstUser.id);
     setPage('dashboard');
   };
 
@@ -41,9 +80,20 @@ export default function App() {
 
   const handleLogout = () => {
     setActiveUser(null);
+    setUsers([]);
+    localStorage.removeItem('authToken');
     localStorage.removeItem('activeUserId');
     setPage('login');
   };
+
+  // Show loading while verifying token
+  if (isVerifying) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-white text-lg">Loading...</div>
+      </div>
+    );
+  }
 
   if (page === 'login') {
     return <Login users={users} onLogin={handleLogin} />;

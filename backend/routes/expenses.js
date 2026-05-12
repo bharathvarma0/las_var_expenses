@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { pool } = require('../database');
+const { authenticateToken, validateUserAccess } = require('../middleware/auth');
 
 // Helper — PostgreSQL returns NUMERIC as strings; convert to JS numbers
 const parseRow = (r) => ({
@@ -11,7 +12,7 @@ const parseRow = (r) => ({
 });
 
 // GET /api/expenses/:userId/:year/:month
-router.get('/:userId/:year/:month', async (req, res) => {
+router.get('/:userId/:year/:month', authenticateToken, validateUserAccess, async (req, res) => {
   try {
     const { userId, year, month } = req.params;
     const { rows } = await pool.query(`
@@ -29,7 +30,7 @@ router.get('/:userId/:year/:month', async (req, res) => {
 });
 
 // GET /api/expenses/all/:year/:month  (combined view for both users)
-router.get('/all/:year/:month', async (req, res) => {
+router.get('/all/:year/:month', authenticateToken, async (req, res) => {
   try {
     const { year, month } = req.params;
     const { rows } = await pool.query(`
@@ -49,7 +50,7 @@ router.get('/all/:year/:month', async (req, res) => {
 });
 
 // POST /api/expenses
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, validateUserAccess, async (req, res) => {
   try {
     const { user_id, category_id, amount, name, date } = req.body;
     const d     = new Date(date);
@@ -71,7 +72,7 @@ router.post('/', async (req, res) => {
 });
 
 // GET /api/expenses/summary/:userId/:year/:month
-router.get('/summary/:userId/:year/:month', async (req, res) => {
+router.get('/summary/:userId/:year/:month', authenticateToken, validateUserAccess, async (req, res) => {
   try {
     const { userId, year, month } = req.params;
     const { rows } = await pool.query(`

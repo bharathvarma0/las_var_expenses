@@ -6,6 +6,7 @@ const app = express();
 app.use(cors()); // Same-domain on Netlify; open for local dev
 app.use(express.json());
 
+app.use('/api/auth',       require('./routes/auth'));
 app.use('/api/users',      require('./routes/users'));
 app.use('/api/categories', require('./routes/categories'));
 app.use('/api/budgets',    require('./routes/budgets'));

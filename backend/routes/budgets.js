@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { pool } = require('../database');
+const { authenticateToken, validateUserAccess } = require('../middleware/auth');
 
 // Helper: dynamically calculate opening_leftovers for a given month (live, not cached)
 async function calcOpeningLeftovers(userId, year, month) {
@@ -25,7 +26,7 @@ async function calcOpeningLeftovers(userId, year, month) {
 }
 
 // GET /api/budgets/:userId/:year/:month
-router.get('/:userId/:year/:month', async (req, res) => {
+router.get('/:userId/:year/:month', authenticateToken, validateUserAccess, async (req, res) => {
   try {
     const { userId, year, month } = req.params;
 
@@ -61,7 +62,7 @@ router.get('/:userId/:year/:month', async (req, res) => {
 });
 
 // POST /api/budgets/:userId/:year/:month
-router.post('/:userId/:year/:month', async (req, res) => {
+router.post('/:userId/:year/:month', authenticateToken, validateUserAccess, async (req, res) => {
   const client = await pool.connect();
   try {
     const { userId, year, month } = req.params;

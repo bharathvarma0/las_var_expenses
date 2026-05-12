@@ -61,6 +61,14 @@ async function initDB() {
         month       INTEGER NOT NULL,
         year        INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS access_groups (
+        id        SERIAL PRIMARY KEY,
+        pin_hash  TEXT NOT NULL UNIQUE,
+        user_ids  INTEGER[] NOT NULL,
+        name      TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // Seed default users only if table is empty
@@ -70,6 +78,15 @@ async function initDB() {
         INSERT INTO users (name, avatar_color) VALUES
           ('Lasya',  '#6366f1'),
           ('Bharath','#ec4899')
+      `);
+    }
+
+    // Add Bhagavan if not already exists (for existing databases)
+    const { rows: bhagavan } = await client.query('SELECT COUNT(*) AS n FROM users WHERE id = 3');
+    if (parseInt(bhagavan[0].n) === 0) {
+      await client.query(`
+        INSERT INTO users (id, name, avatar_color) VALUES (3, 'Bhagavan', '#22c55e')
+        ON CONFLICT (id) DO NOTHING
       `);
     }
 

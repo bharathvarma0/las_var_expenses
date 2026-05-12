@@ -1,6 +1,7 @@
 const express = require('express');
 const router  = express.Router();
 const { pool } = require('../database');
+const { authenticateToken } = require('../middleware/auth');
 
 const COLORS = [
   '#3b82f6','#f59e0b','#10b981','#8b5cf6','#ef4444',
@@ -8,7 +9,7 @@ const COLORS = [
   '#14b8a6','#a855f7','#eab308','#64748b',
 ];
 
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM categories ORDER BY name');
     res.json(rows);
@@ -17,7 +18,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const { name } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
@@ -36,7 +37,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', authenticateToken, async (req, res) => {
   try {
     const { name } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
@@ -47,7 +48,7 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query(
       'SELECT COUNT(*) AS n FROM expenses WHERE category_id=$1',
